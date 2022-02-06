@@ -1,7 +1,7 @@
 # TREE-TMC
 
 ```
-git clone https://github.com/molloy-lab/TREE-TMC/TREE-TMC.git
+git clone https://github.com/molloy-lab/TREE-TMC.git
 cd TREE-TMC/MQLib
 make
 cd ..
