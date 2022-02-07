@@ -140,7 +140,7 @@ std::string Matrix3D::display_mat(T ***m, size_t nrow, size_t ncol, size_t size)
 class Node {
     public:
         Node();
-        Node(const std::string &name);
+        Node(std::string name);
         ~Node();
         bool is_root();
         bool is_leaf();
@@ -170,7 +170,7 @@ Node::Node() {
     size = 0;
 }
 
-Node::Node(const std::string &name) {
+Node::Node(std::string name) {
     parent = NULL;
     label = name;
     index = INDEX_MAX;
