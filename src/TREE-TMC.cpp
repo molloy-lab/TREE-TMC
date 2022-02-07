@@ -79,6 +79,10 @@ template <typename T> void extend(T &list1, T &list2) {
     basic n x n x 2 matrix processing functions
     a quartet graph is represented by two matrices G and B
     storing weights of good and bad edges, respectively
+
+    TODO: We probably want to make this 1D and then
+          provide some functions or operator overloads so that it
+          can be accessed like it's 3D
 */
 
 namespace Matrix3D {
@@ -148,7 +152,7 @@ class Node {
         void add_children_to_list(std::list<Node*> &nodelist);
         void suppress_unifurcations();
         std::string newick(bool printindex=false);
-        std::string label;  // we probably want to get rid of this at some point
+        std::string label;  // TODO: we probably want to get rid of this at some point
                             // so we aren't storing so many copies of labels!
                             // this could be done if we read trees onto the same
                             // label set... 
