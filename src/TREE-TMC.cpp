@@ -115,8 +115,10 @@ class Node {
         Node();
         Node(const std::string &name);
         ~Node();
-        Node* get_parent();
+        bool is_root();
+        bool is_leaf();
         size_t num_children();
+        Node* get_parent();
         void add_child(Node *child);
         void remove_child(Node *child);
         void contract();
@@ -129,7 +131,6 @@ class Node {
     private:
         Node *parent;
         std::list<Node*> children;
-        bool is_leaf;
 };
 
 Node::Node() {
@@ -137,7 +138,6 @@ Node::Node() {
     label = "";
     index = SIZE_MAX;
     size = 0;
-    is_leaf = true;
 }
 
 Node::Node(const std::string &name) {
@@ -145,7 +145,6 @@ Node::Node(const std::string &name) {
     label = name;
     index = SIZE_MAX;
     size = 0;
-    is_leaf = true;
 }
 
 Node::~Node() {
@@ -158,12 +157,22 @@ Node::~Node() {
     }
 }
 
-Node* Node::get_parent() {
-    return parent;
+bool Node::is_root() {
+    if (parent == NULL) return true;
+    return false;
+}
+
+bool Node::is_leaf() {
+    if (children.size() == 0) return true;
+    return false;
 }
 
 size_t Node::num_children() {
     return children.size();
+}
+
+Node* Node::get_parent() {
+    return parent;
 }
 
 void Node::add_child(Node *child) {
@@ -171,8 +180,6 @@ void Node::add_child(Node *child) {
 
     child->parent = this;
     children.push_back(child);
-
-    is_leaf = false;
 }
 
 void Node::remove_child(Node *child) {
@@ -180,8 +187,6 @@ void Node::remove_child(Node *child) {
 
     child->parent = NULL;
     children.remove(child);
-
-    if (this->num_children() == 0) is_leaf = true;
 }
 
 void Node::contract() {
@@ -198,7 +203,6 @@ void Node::contract() {
 void Node::add_children_to_list(std::list<Node*> &nodelist) {
     extend(nodelist, children);
 }
-
 
 void Node::suppress_unifurcations() {
     std::list<Node*> nodelist;
@@ -228,7 +232,7 @@ std::string Node::newick(bool printindex) {
     std::list<Node*>::iterator it;
     std::string out;
 
-    if (this->is_leaf) {
+    if (this->is_leaf()) {
         out = "";
         if (!this->label.empty()) {
             out += this->label;
@@ -496,7 +500,7 @@ struct Leaves
             nodelist.pop_front();
             tmp->add_children_to_list(nodelist);
 
-            if (tmp->num_children() == 0) {
+            if (tmp->is_leaf()) {
                 current_node = tmp;
                 break;
             }
@@ -519,7 +523,7 @@ struct Leaves
                 nodelist.pop_front();
                 node->add_children_to_list(nodelist);
 
-                if (node->num_children() == 0) {
+                if (node->is_leaf()) {
                     current_node = node;
                     break;
                 }
