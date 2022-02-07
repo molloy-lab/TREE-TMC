@@ -10,9 +10,28 @@
 #include <vector>
 #include <list>
 #include <iomanip>
+// #include <inttypes.h>
 #include "heuristics/maxcut/burer2002.h"
 #include "problem/instance.h"
 #include "problem/max_cut_instance.h"
+
+
+
+// Allows user to set at compile time
+// Use compile flags -DUSE_SHRT or -DUSE_LONG
+#ifdef USE_SHRT
+    typedef uint16_t index_t;
+    #define INDEX_MAX USHRT_MAX
+#elif USE_LONG
+    typedef uint64_t index_t;
+    #define INDEX_MAX ULONG_MAX
+#else
+    typedef uint32_t index_t;
+    #define INDEX_MAX UINT_MAX
+#endif  // USE_USHRT or USE_ULONG
+
+
+#define BYTES_PER_GB 1073741824
 
 
 std::string input_file = "", output_file = "";
@@ -55,6 +74,7 @@ template <typename T> void extend(T &list1, T &list2) {
     }
 }
 
+
 /*
     basic n x n x 2 matrix processing functions
     a quartet graph is represented by two matrices G and B
@@ -66,6 +86,7 @@ namespace Matrix3D {
     template <typename T> void delete_mat(T ***m, size_t nrow, size_t ncol);
     template <typename T> std::string display_mat(T ***m, size_t nrow, size_t ncol, size_t size);
 };
+
 
 template <typename T>
 T ***Matrix3D::new_mat(size_t nrow, size_t ncol, size_t size) {
@@ -82,6 +103,7 @@ T ***Matrix3D::new_mat(size_t nrow, size_t ncol, size_t size) {
     return m;
 }
 
+
 template <typename T>
 void Matrix3D::delete_mat(T ***m, size_t nrow, size_t ncol) {
     for (int i = 0; i < nrow; i ++) {
@@ -92,6 +114,7 @@ void Matrix3D::delete_mat(T ***m, size_t nrow, size_t ncol) {
     }
     delete[] m;
 }
+
 
 template <typename T>
 std::string Matrix3D::display_mat(T ***m, size_t nrow, size_t ncol, size_t size) {
@@ -125,9 +148,12 @@ class Node {
         void add_children_to_list(std::list<Node*> &nodelist);
         void suppress_unifurcations();
         std::string newick(bool printindex=false);
-        std::string label;
-        size_t index;
-        size_t size;
+        std::string label;  // we probably want to get rid of this at some point
+                            // so we aren't storing so many copies of labels!
+                            // this could be done if we read trees onto the same
+                            // label set... 
+        index_t index;
+        index_t size;
     private:
         Node *parent;
         std::list<Node*> children;
@@ -136,14 +162,14 @@ class Node {
 Node::Node() {
     parent = NULL;
     label = "";
-    index = SIZE_MAX;
+    index = INDEX_MAX;
     size = 0;
 }
 
 Node::Node(const std::string &name) {
     parent = NULL;
     label = name;
-    index = SIZE_MAX;
+    index = INDEX_MAX;
     size = 0;
 }
 
@@ -689,15 +715,15 @@ class Forest {
     private:
         std::vector<Tree*> trees;
         std::vector<std::string> index2label;
-        std::unordered_map<std::string, size_t> label2index;
+        std::unordered_map<std::string, index_t> label2index;
 };
 
 
 Forest::Forest(std::vector<Tree*> &mytrees) {
-    std::unordered_map<std::string, size_t>::const_iterator mapIter;
+    std::unordered_map<std::string, index_t>::const_iterator mapIter;
     Node *root, *leaf;
     std::string label;
-    size_t index;
+    index_t index;
 
     trees = mytrees;
 
@@ -710,7 +736,7 @@ Forest::Forest(std::vector<Tree*> &mytrees) {
             mapIter = label2index.find(label);
             if ( mapIter == label2index.end() ) {
                 index = index2label.size();
-                leaf->index = index;
+                leaf->index = (index_t) index;
                 label2index.insert({label, index});
                 index2label.push_back(label);
             }
@@ -742,7 +768,7 @@ namespace TripletMaxCut {
 
 
 void TripletMaxCut::main(std::vector<Tree*> input) {
-    double ***matrix;
+    double ***matrix;  // could probably get away with float...
     size_t n, k;
     Forest *forest = new Forest(input);
 
