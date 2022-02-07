@@ -362,6 +362,7 @@ struct PreOrder
         previous_node = NULL;
         current_node = node;
         current_node->add_children_to_list(nodelist);
+        // TODO: Maybe be able to get rid of storage... ?
     };
 
     // incrementing means going to the parent node
@@ -442,6 +443,7 @@ struct PostOrder
         }
 
         nodelist1.clear();
+        // TO DO: Maybe be able to get rid of stoarge!
 
         while (nodelist2.size() != 0) {
             tmp = nodelist2.back();
