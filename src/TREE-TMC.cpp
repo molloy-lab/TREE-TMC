@@ -227,6 +227,8 @@ void Node::contract() {
         parent->add_child(*it);
     }
     parent->remove_child(this);
+
+    delete this;
 }
 
 
