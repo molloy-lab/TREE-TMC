@@ -163,133 +163,6 @@ class Node {
         std::list<Node*> children;
 };
 
-Node::Node() {
-    parent = NULL;
-    label = "";
-    index = INDEX_MAX;
-    size = 0;
-}
-
-Node::Node(std::string name) {
-    parent = NULL;
-    label = name;
-    index = INDEX_MAX;
-    size = 0;
-}
-
-Node::~Node() {
-    std::list<Node*>::iterator it;
-    for (it = children.begin(); it != children.end(); ++it) {
-        this->remove_child(*it);
-    }
-    if (parent != NULL) {
-        parent->remove_child(this);
-    }
-}
-
-bool Node::is_root() {
-    if (parent == NULL) return true;
-    return false;
-}
-
-bool Node::is_leaf() {
-    if (children.size() == 0) return true;
-    return false;
-}
-
-size_t Node::num_children() {
-    return children.size();
-}
-
-Node* Node::get_parent() {
-    return parent;
-}
-
-void Node::add_child(Node *child) {
-    if (child == NULL) return;
-
-    child->parent = this;
-    children.push_back(child);
-}
-
-void Node::remove_child(Node *child) {
-     if (child == NULL) return;
-
-    child->parent = NULL;
-    children.remove(child);
-}
-
-void Node::contract() {
-    if (parent == NULL) return;
-
-    std::list<Node*>::iterator it;
-    for (it = children.begin(); it != children.end(); ++it) {
-        parent->add_child(*it);
-    }
-    parent->remove_child(this);
-
-    delete this;
-}
-
-
-void Node::add_children_to_list(std::list<Node*> &nodelist) {
-    extend(nodelist, children);
-}
-
-void Node::suppress_unifurcations() {
-    std::list<Node*> nodelist;
-    Node *node, *child;
-    
-    nodelist.push_back(this);
-
-    while (nodelist.size() > 0) {
-        node = nodelist.front();
-        nodelist.pop_front();
-
-        if (node->num_children() != 1) {
-            node->add_children_to_list(nodelist);
-            continue;
-        }
-
-        child = node->children.front();
-        node->contract();
-        nodelist.push_back(child);
-    }
-}
-
-
-std::string Node::newick(bool printindex) {
-    // TODO: Maybe change to pass by reference?
-
-    std::list<Node*>::iterator it;
-    std::string out;
-
-    if (this->is_leaf()) {
-        out = "";
-        if (!this->label.empty()) {
-            out += this->label;
-            if (printindex) {
-                out += ':';
-                out += std::to_string(this->index);
-            }         
-        }
-        return out;
-    }
-
-    out = '(';
-
-    for (it = this->children.begin(); it != this->children.end(); ++it) {
-        out += (*it)->newick(printindex);
-        out += ',';
-    }
-    out.pop_back();  // Drop trailing comma
-    out += ')';
-
-    if (!this->label.empty()) out += this->label;
-
-    return out;
-}
-
 
 namespace Traverse {
 struct ToRoot
@@ -606,6 +479,123 @@ struct Leaves
 };
 
 }; // namespace traversal
+
+
+Node::Node() {
+    parent = NULL;
+    label = "";
+    index = INDEX_MAX;
+    size = 0;
+}
+
+Node::Node(std::string name) {
+    parent = NULL;
+    label = name;
+    index = INDEX_MAX;
+    size = 0;
+}
+
+Node::~Node() {
+    std::list<Node*>::iterator it;
+    for (it = children.begin(); it != children.end(); ++it) {
+        this->remove_child(*it);
+    }
+    if (parent != NULL) {
+        parent->remove_child(this);
+    }
+}
+
+bool Node::is_root() {
+    if (parent == NULL) return true;
+    return false;
+}
+
+bool Node::is_leaf() {
+    if (children.size() == 0) return true;
+    return false;
+}
+
+size_t Node::num_children() {
+    return children.size();
+}
+
+Node* Node::get_parent() {
+    return parent;
+}
+
+void Node::add_child(Node *child) {
+    if (child == NULL) return;
+
+    child->parent = this;
+    children.push_back(child);
+}
+
+void Node::remove_child(Node *child) {
+     if (child == NULL) return;
+
+    child->parent = NULL;
+    children.remove(child);
+}
+
+void Node::contract() {
+    if (parent == NULL) return;
+
+    std::list<Node*>::iterator it;
+    for (it = children.begin(); it != children.end(); ++it) {
+        parent->add_child(*it);
+    }
+    parent->remove_child(this);
+
+    parent = NULL;
+    children.clear();
+
+    delete this;
+}
+
+
+void Node::add_children_to_list(std::list<Node*> &nodelist) {
+    extend(nodelist, children);
+}
+
+void Node::suppress_unifurcations() {
+    auto nodeItr = Traverse::PreOrder(this);
+    for (; nodeItr != nodeItr.end(); ++nodeItr) {
+        if ((*nodeItr)->num_children() == 1) (*nodeItr)->contract();
+    }
+}
+
+
+std::string Node::newick(bool printindex) {
+    // TODO: Maybe change to pass by reference?
+
+    std::list<Node*>::iterator it;
+    std::string out;
+
+    if (this->is_leaf()) {
+        out = "";
+        if (!this->label.empty()) {
+            out += this->label;
+            if (printindex) {
+                out += ':';
+                out += std::to_string(this->index);
+            }         
+        }
+        return out;
+    }
+
+    out = '(';
+
+    for (it = this->children.begin(); it != this->children.end(); ++it) {
+        out += (*it)->newick(printindex);
+        out += ',';
+    }
+    out.pop_back();  // Drop trailing comma
+    out += ')';
+
+    if (!this->label.empty()) out += this->label;
+
+    return out;
+}
 
 
 class Tree {
