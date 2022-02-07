@@ -47,6 +47,13 @@ const std::string help =
 "        -v 3: also write subproblem triplet graphs in phylip matrix format\n\n"
 "================================================================================\n\n";
 
+// Adds elements of list 2 to list 1 (does not copy!)
+template <typename T> void extend(T &list1, T &list2) {
+    typename T::iterator it;
+    for (it = list2.begin(); it != list2.end(); ++it) {
+        list1.push_back(*it);
+    }
+}
 
 /*
     basic n x n x 2 matrix processing functions
@@ -59,7 +66,6 @@ namespace Matrix3D {
     template <typename T> void delete_mat(T ***m, size_t nrow, size_t ncol);
     template <typename T> std::string display_mat(T ***m, size_t nrow, size_t ncol, size_t size);
 };
-
 
 template <typename T>
 T ***Matrix3D::new_mat(size_t nrow, size_t ncol, size_t size) {
@@ -109,20 +115,22 @@ class Node {
         Node();
         Node(const std::string &name);
         ~Node();
+        Node* get_parent();
+        size_t num_children();
         void add_child(Node *child);
         void remove_child(Node *child);
-        void traverse_preorder(std::vector<Node*> &traversal);
-        void traverse_postorder(std::vector<Node*> &traversal);
-        void traverse_leaves(std::vector<Node*> &traversal);
+        void contract();
+        void add_children_to_list(std::list<Node*> &nodelist);
+        void suppress_unifurcations();
         std::string newick(bool printindex=false);
-        Node *parent;
-        std::list<Node*> children;
         std::string label;
         size_t index;
         size_t size;
+    private:
+        Node *parent;
+        std::list<Node*> children;
         bool is_leaf;
 };
-
 
 Node::Node() {
     parent = NULL;
@@ -150,126 +158,417 @@ Node::~Node() {
     }
 }
 
+Node* Node::get_parent() {
+    return parent;
+}
+
+size_t Node::num_children() {
+    return children.size();
+}
+
 void Node::add_child(Node *child) {
     if (child == NULL) return;
 
-    children.push_back(child);
     child->parent = this;
+    children.push_back(child);
+
     is_leaf = false;
 }
 
 void Node::remove_child(Node *child) {
      if (child == NULL) return;
 
+    child->parent = NULL;
     children.remove(child);
-    if (children.size() == 0) is_leaf = true;
+
+    if (this->num_children() == 0) is_leaf = true;
 }
 
-void Node::traverse_preorder(std::vector<Node*> &traversal) {
+void Node::contract() {
+    if (parent == NULL) return;
+
     std::list<Node*>::iterator it;
-    std::list<Node*> nlist;
-    Node *node;
-
-    traversal.clear();
-
-    nlist.push_back(this);
-
-    while (nlist.size() > 0) {
-        node = nlist.front();
-        nlist.pop_front();
-
-        traversal.push_back(node);  // we want this to be yield...
-
-        for (it = node->children.begin(); it != node->children.end(); ++it) {
-            nlist.push_back(*it);
-        }
+    for (it = children.begin(); it != children.end(); ++it) {
+        parent->add_child(*it);
     }
+    parent->remove_child(this);
 }
 
-void Node::traverse_leaves(std::vector<Node*> &traversal) {
-    std::list<Node*>::iterator it;
-    std::list<Node*> nlist;
-    Node *node;
 
-    traversal.clear();
-
-    nlist.push_back(this);
-
-    while (nlist.size() > 0) {
-        node = nlist.front();
-        nlist.pop_front();
-
-        if (node->is_leaf)
-            traversal.push_back(node);  // we want this to be yield...
-
-        for (it = node->children.begin(); it != node->children.end(); ++it) {
-            nlist.push_back(*it);
-        }
-    }
+void Node::add_children_to_list(std::list<Node*> &nodelist) {
+    extend(nodelist, children);
 }
 
-void Node::traverse_postorder(std::vector<Node*> &traversal) {
-    std::list<Node*>::iterator it;
-    std::list<Node*> nlist1;
-    std::list<Node*> nlist2;
-    Node *node;
 
-    traversal.clear();
+void Node::suppress_unifurcations() {
+    std::list<Node*> nodelist;
+    Node *node, *child;
+    
+    nodelist.push_back(this);
 
-    nlist1.push_back(this);
+    while (nodelist.size() > 0) {
+        node = nodelist.front();
+        nodelist.pop_front();
 
-    while (nlist1.size() != 0) {
-        node = nlist1.back();
-        nlist1.pop_back();
-
-        // Extend
-        for (it = node->children.begin(); it != node->children.end(); ++it) {
-             nlist1.push_back(*it);
+        if (node->num_children() != 1) {
+            node->add_children_to_list(nodelist);
+            continue;
         }
 
-        nlist2.push_back(node);
-    }
-
-    while (nlist2.size() != 0) {
-        node = nlist2.back();
-        nlist2.pop_back();
-
-        traversal.push_back(node); // we want this to be yield...
+        child = node->children.front();
+        node->contract();
+        nodelist.push_back(child);
     }
 }
 
 
 std::string Node::newick(bool printindex) {
-    // TODO: Maybe change this to pass by reference on string...
+    // TODO: Maybe change to pass by reference?
 
     std::list<Node*>::iterator it;
-    std::string out = "";
-    Node *node;
-    node = this;
+    std::string out;
 
-    if (node->is_leaf) {
-        if (!node->label.empty()) {
-            out += node->label;
+    if (this->is_leaf) {
+        out = "";
+        if (!this->label.empty()) {
+            out += this->label;
             if (printindex) {
                 out += ':';
-                out += std::to_string(node->index);
+                out += std::to_string(this->index);
             }         
         }
-    } else {
-        out += '(';
-
-        for (it = node->children.begin(); it != node->children.end(); ++it) {
-            out += (*it)->newick(printindex);
-            out += ',';
-        }
-        out.pop_back();  // Drop trailing comma
-        out += ')';
-
-        if (!node->label.empty()) out += node->label;
+        return out;
     }
+
+    out = '(';
+
+    for (it = this->children.begin(); it != this->children.end(); ++it) {
+        out += (*it)->newick(printindex);
+        out += ',';
+    }
+    out.pop_back();  // Drop trailing comma
+    out += ')';
+
+    if (!this->label.empty()) out += this->label;
 
     return out;
 }
+
+
+namespace Traverse {
+struct ToRoot
+{
+    // constructor that takes in a node
+    ToRoot() {
+        previous_node = NULL;
+        current_node = NULL;
+    };
+
+    ToRoot(Node *node) {
+        previous_node = NULL;
+        current_node = node;
+    };
+
+    // incrementing means going to the parent node
+    ToRoot &operator++() noexcept
+    {
+        if (current_node != NULL) {
+            previous_node = current_node;
+            current_node = current_node->get_parent();
+        }
+        return *this;
+    };
+
+    // post fixing is bad in general but it has it's usages
+    ToRoot operator++(int) noexcept
+    {
+        ToRoot tempIter = *this;   // make a copy of the iterator
+        ++*this;                   // increment
+        return tempIter;           // return the copy before increment
+    };
+
+    // compare nodes
+    bool operator!=(const ToRoot &other) const noexcept
+    {
+        return this->current_node != other.current_node;
+    };
+
+    // return the node (dereference operator)
+    Node* operator*() const noexcept
+    {
+        return this->current_node;
+    };
+
+    // return a const pointer to the front
+    ToRoot begin() const noexcept
+    {
+        return ToRoot(this->current_node);
+    };
+
+    // return a const pointer to the back - the back is always null
+    ToRoot end() const noexcept
+    {
+        return ToRoot();
+    };
+
+    private:
+        Node *previous_node = NULL;
+        Node *current_node = NULL;
+};
+
+struct PreOrder
+{
+    // constructor that takes in a node
+    PreOrder() {
+        previous_node = NULL;
+        current_node = NULL;
+    };
+
+    PreOrder(Node *node) {
+        previous_node = NULL;
+        current_node = node;
+        current_node->add_children_to_list(nodelist);
+    };
+
+    // incrementing means going to the parent node
+    PreOrder &operator++() noexcept
+    {
+        previous_node = current_node;
+        if (nodelist.size() == 0) {
+            current_node = NULL;
+            nodelist.clear();
+        } else {
+            current_node = nodelist.front();
+            nodelist.pop_front();
+            current_node->add_children_to_list(nodelist);
+        }
+
+        return *this;
+    };
+
+    // post fixing is bad in general but it has it's usages
+    PreOrder operator++(int) noexcept
+    {
+        PreOrder tempIter = *this;  // make a copy of the iterator
+        ++*this;                    // increment
+        return tempIter;            // return the copy before increment
+    };
+
+    // compare nodes
+    bool operator!=(const PreOrder &other) const noexcept
+    {
+        return this->current_node != other.current_node;
+    };
+
+    // return the node (dereference operator)
+    Node* operator*() const noexcept
+    {
+        return this->current_node;
+    };
+
+    // return a const pointer to the front
+    PreOrder begin() const noexcept
+    {
+        return PreOrder(this->current_node);
+    };
+
+    // return a const pointer to the back - the back is always null
+    PreOrder end() const noexcept
+    {
+        return PreOrder();
+    };
+
+    private:
+        Node *previous_node = NULL;
+        Node *current_node = NULL;
+        std::list<Node*> nodelist;
+};
+
+
+struct PostOrder
+{
+    // constructor that takes in a node
+    PostOrder() {
+        previous_node = NULL;
+        current_node = NULL;
+    };
+
+    PostOrder(Node *node) {
+        Node *tmp;
+
+        previous_node = NULL;
+
+        nodelist1.push_back(node);
+
+        while (nodelist1.size() != 0) {
+            tmp = nodelist1.back();
+            nodelist1.pop_back();
+            tmp->add_children_to_list(nodelist1);
+            nodelist2.push_back(tmp);
+        }
+
+        nodelist1.clear();
+
+        while (nodelist2.size() != 0) {
+            tmp = nodelist2.back();
+            nodelist2.pop_back();
+
+            current_node = tmp;
+            break;
+        }
+    };
+
+    // incrementing means going to the next node in the postorder traversal
+    PostOrder &operator++() noexcept
+    {
+        Node *node;
+
+        previous_node = current_node;
+        if (nodelist2.size() == 0) {
+            current_node = NULL;
+            nodelist2.clear();
+        } else {
+            node = nodelist2.back();
+            nodelist2.pop_back();
+            current_node = node;
+        }
+
+        return *this;
+    };
+
+    // post fixing is bad in general but it has it's usages
+    PostOrder operator++(int) noexcept
+    {
+        PostOrder tempIter = *this;   // make a copy of the iterator
+        ++*this;                      // increment
+        return tempIter;              // return the copy before increment
+    };
+
+    // compare nodes
+    bool operator!=(const PostOrder &other) const noexcept
+    {
+        return this->current_node != other.current_node;
+    };
+
+    // return the node (dereference operator)
+    Node* operator*() const noexcept
+    {
+        return this->current_node;
+    };
+
+    // return a const pointer to the front
+    PostOrder begin() const noexcept
+    {
+        return PostOrder(this->current_node);
+    };
+
+    // return a const pointer to the back - the back is always null
+    PostOrder end() const noexcept
+    {
+        return PostOrder();
+    };
+
+    private:
+        Node *previous_node = NULL;
+        Node *current_node = NULL;
+        std::list<Node*> nodelist1;
+        std::list<Node*> nodelist2;
+};
+
+
+struct Leaves
+{
+    // constructor that takes in a node
+    Leaves() {
+        previous_node = NULL;
+        current_node = NULL;
+    };
+
+    Leaves(Node *node) {
+        Node *tmp;
+
+        previous_node = NULL;
+
+        nodelist.push_back(node);
+
+        while (nodelist.size() > 0) {
+            tmp = nodelist.front();
+            nodelist.pop_front();
+            tmp->add_children_to_list(nodelist);
+
+            if (tmp->num_children() == 0) {
+                current_node = tmp;
+                break;
+            }
+        }
+    };
+
+    // incrementing means going to the next leaf node
+    Leaves &operator++() noexcept
+    {
+        Node *node;
+
+        previous_node = current_node;
+
+        if (nodelist.size() == 0) {
+            current_node = NULL;
+            nodelist.clear();
+        } else {
+            while (nodelist.size() > 0) {
+                node = nodelist.front();
+                nodelist.pop_front();
+                node->add_children_to_list(nodelist);
+
+                if (node->num_children() == 0) {
+                    current_node = node;
+                    break;
+                }
+            }
+        }
+
+        return *this;
+    };
+
+    // post fixing is bad in general but it has it's usages
+    Leaves operator++(int) noexcept
+    {
+        Leaves tempIter = *this;   // make a copy of the iterator
+        ++*this;                   // increment
+        return tempIter;           // return the copy before increment
+    };
+
+    // compare nodes
+    bool operator!=(const Leaves &other) const noexcept
+    {
+        return this->current_node != other.current_node;
+    };
+
+    // return the node (dereference operator)
+    Node* operator*() const noexcept
+    {
+        return this->current_node;
+    };
+
+    // return a const pointer to the front
+    Leaves begin() const noexcept
+    {
+        return Leaves(this->current_node);
+    };
+
+    // return a const pointer to the back - the back is always null
+    Leaves end() const noexcept
+    {
+        return Leaves();
+    };
+
+    private:
+        Node *previous_node = NULL;
+        Node *current_node = NULL;
+        std::list<Node*> nodelist;
+};
+
+}; // namespace traversal
+
 
 class Tree {
     public:
@@ -277,10 +576,10 @@ class Tree {
         Tree(Node *myroot);
         Tree(const std::string &text);
         ~Tree();
-        void traverse_preorder(std::vector<Node*> &traversal);
-        void traverse_postorder(std::vector<Node*> &traversal);
-        void traverse_leaves(std::vector<Node*> &traversal);
+        Node* get_root();
+        void suppress_unifurcations();
         std::string newick(bool printindex=false);
+    private:
         Node *root;
 };
 
@@ -292,8 +591,6 @@ Tree::Tree() {
 
 Tree::Tree(Node *myroot) {
     root = myroot;
-
-    //tree.suppress_unifurcations();
 }
 
 
@@ -320,10 +617,10 @@ Tree::Tree(const std::string &text) {
             node = child;
         } else if (text[i] == ')') {
             // Go to parent
-            node = node->parent;
+            node = node->get_parent();
         } else if (text[i] == ',') {
             // Go to new sibling
-            node = node->parent;
+            node = node->get_parent();
             child = new Node();
             node->add_child(child);
             node = child;
@@ -348,36 +645,33 @@ Tree::Tree(const std::string &text) {
         }
         i += 1;
     }
+
+    root->suppress_unifurcations();
 }
 
+
 Tree::~Tree() { 
-    std::vector<Node*> traversal;
-    root->traverse_postorder(traversal);
-    for (size_t i = 0; i < traversal.size(); i++) {
-        std::cout << "  Deleting " << traversal[i]->label << std::endl;
-        delete traversal[i];
+    auto nodeItr = Traverse::PostOrder(root);
+    for (; nodeItr != nodeItr.end(); ++nodeItr) {
+        delete *nodeItr;
     }
 }
+
+
+Node* Tree::get_root() {
+    return root;
+}
+
+
+void Tree::suppress_unifurcations() {
+    root->suppress_unifurcations();
+}
+
 
 std::string Tree::newick(bool printindex) {
     std::string out = this->root->newick(printindex);
     out += ";";
     return out;
-}
-
-void Tree::traverse_preorder(std::vector<Node*> &traversal) {
-    traversal.clear();
-    root->traverse_preorder(traversal);
-}
-
-void Tree::traverse_postorder(std::vector<Node*> &traversal) {
-    traversal.clear();
-    root->traverse_postorder(traversal);
-}
-
-void Tree::traverse_leaves(std::vector<Node*> &traversal) {
-    traversal.clear();
-    root->traverse_leaves(traversal);
 }
 
 
@@ -388,6 +682,7 @@ class Forest {
         ~Forest();
         size_t num_trees();
         size_t num_labels();
+    private:
         std::vector<Tree*> trees;
         std::vector<std::string> index2label;
         std::unordered_map<std::string, size_t> label2index;
@@ -395,28 +690,21 @@ class Forest {
 
 
 Forest::Forest(std::vector<Tree*> &mytrees) {
-    std::unordered_map<std::string, size_t>::const_iterator it;
-    std::vector<Node*> traversal;
-    Node *leaf;
+    std::unordered_map<std::string, size_t>::const_iterator mapIter;
+    Node *root, *leaf;
     std::string label;
     size_t index;
 
     trees = mytrees;
 
-
     for (size_t i = 0; i < trees.size(); i++) {
-        trees[i]->traverse_leaves(traversal);
-
-        std::cout << "Found tree " << trees[i]->newick(true) << std::endl;
-
-        for (size_t j = 0; j < traversal.size(); j++) {
-            leaf = traversal[j];
+        auto leafItr = Traverse::Leaves(trees[i]->get_root());
+        for (; leafItr != leafItr.end(); ++leafItr) {
+            leaf = *leafItr;
             label = leaf->label;
 
-            std::cout << "Found label " << label << std::endl;
-
-            it = label2index.find(label);
-            if ( it == label2index.end() ) {
+            mapIter = label2index.find(label);
+            if ( mapIter == label2index.end() ) {
                 index = index2label.size();
                 leaf->index = index;
                 label2index.insert({label, index});
@@ -438,6 +726,10 @@ size_t Forest::num_trees() {
 size_t Forest::num_labels() {
     return index2label.size();
 }
+
+
+
+
 
 namespace TripletMaxCut {
    void main(std::vector<Tree*> input);
@@ -473,7 +765,6 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
     // Clean up
     Matrix3D::delete_mat(matrix, n, n);
     for (size_t i = 0; i < input.size(); i++) {
-        std::cout << "Delete tree " << i << std::endl;
         delete input[i];
     }
     input.clear();
@@ -546,7 +837,6 @@ int main(int argc, char** argv) {
     }
     fin.close();
 
-    // Want to fill in your matrix based on Forest...
     TripletMaxCut::main(input);
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -556,4 +846,3 @@ int main(int argc, char** argv) {
 
     return 0;
 }
-
