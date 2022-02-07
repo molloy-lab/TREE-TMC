@@ -717,18 +717,18 @@ Forest::Forest(std::vector<Tree*> &mytrees) {
     }
 }
 
+
 Forest::~Forest() {}
+
 
 size_t Forest::num_trees() {
     return trees.size();
 }
 
+
 size_t Forest::num_labels() {
     return index2label.size();
 }
-
-
-
 
 
 namespace TripletMaxCut {
@@ -772,7 +772,7 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
 
     // Now recurse on the two subproblems
 
-    // Combine the subproblems... after the recurssion bounces back...
+    // Combine the subproblems... after recursion bounces back...
 }
 
 
