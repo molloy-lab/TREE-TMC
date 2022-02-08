@@ -126,9 +126,9 @@ std::string Matrix3D::display_mat(T ***m, size_t nrow, size_t ncol, size_t size)
     std::stringstream ss;
     for (size_t k = 0; k < size; k++) {
         ss << "Matrix2D: " << k << std::endl;
-        for (int i = 0; i < size; i ++) {
-            for (int j = 0; j < size; j ++) {
-                ss << std::setw(12) << std::setprecision(6) << m[i][j][k];
+        for (int i = 0; i < nrow; i ++) {
+            for (int j = 0; j < ncol; j ++) {
+                ss << std::setw(2) << std::setprecision(6) << m[i][j][k];
             }
             ss << std::endl;
         }
@@ -151,10 +151,13 @@ class Node {
         void remove_child(Node *child);
         void contract();
         void add_children_to_list(std::list<Node*> &nodelist);
+        void update_label_list(std::list<std::string> labellist);
+        void update_label_list(std::string str);
+        std::list<std::string> get_label_list();
         void suppress_unifurcations();
-    void compute_c();
-    void update_c(Node *child);
-    size_t get_c();
+        void compute_c();
+        void update_c(Node *child);
+        size_t get_c();
         std::string newick(bool printindex=false);
         std::string label;  // TODO: we probably want to get rid of this at some point
                             // so we aren't storing so many copies of labels!
@@ -162,10 +165,11 @@ class Node {
                             // label set... 
         index_t index;
         index_t size;
-    private:
-    index_t c = 0;
-        Node *parent;
         std::list<Node*> children;
+        std::list<std::string> label_list;
+    private:
+        index_t c = 0;
+        Node *parent;
 };
 
 
@@ -528,6 +532,18 @@ size_t Node::get_c() {
     return c;
 }
 
+void Node::update_label_list(std::list<std::string> newnodes) {
+    label_list.merge(newnodes);
+}
+
+void Node::update_label_list(std::string str) {
+    label_list.push_back(str);
+}
+
+std::list<std::string> Node::get_label_list() {
+    return label_list;
+}
+
 Node* Node::get_parent() {
     return parent;
 }
@@ -557,7 +573,7 @@ void Node::compute_c() {
             (*nodeItr)->c = 1;
             //std::cout << "c["+ ((*nodeItr)->label) + "] = " + std::to_string((*nodeItr)->get_c()) << std::endl;
         continue;
-    }
+        }
         std::list<Node*>::iterator it;
         for (it = (*nodeItr)->children.begin(); it != (*nodeItr)->children.end(); ++it) {
             (*nodeItr)->update_c(*it);
@@ -635,7 +651,7 @@ class Tree {
         ~Tree();
         Node* get_root();
         void suppress_unifurcations();
-    void compute_c();
+        void compute_c();
         std::string newick(bool printindex=false);
     private:
         Node *root;
@@ -828,19 +844,71 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
 
     // Get c[v] (the number of taxa beneath v) for each vertex v
     forest->compute_c();
-
-    // Compute good and bad edges in the matrix
-    for (size_t i = 0; i < k; i++) {
-        auto tree = trees[i];
-        for (size_t t1; t1 < n; t1++) {
-            for (size_t t2; t2 < 2; t2++) {
-                std::string t1_label = forest->index2label[t1];
-                std::string t2_label = forest->index2label[t2];
-                size_t G_t1t2;
-                size_t B_t1t2;
+    //Build B and G post-order
+    for (size_t t = 0; t < k; t++) {
+        //std::cout << std::to_string(t) << std::endl;
+        auto tre = trees[t];
+        auto nodeItr = Traverse::PostOrder(tre->get_root());
+        for (; nodeItr != nodeItr.end(); ++nodeItr) {
+            //if we are at a leaf X we should just add it's label to a singleton list [X].
+            if ((*nodeItr)->is_leaf()) {
+                (*nodeItr)->update_label_list((*nodeItr)->label);
+                continue;
             }
+            //otherwise we should iterate through the children of the node and compute B[i,j]
+            size_t i = 0;
+            std::list<Node*>::iterator ci;
+            for (ci = (*nodeItr)->children.begin(); ci != (*nodeItr)->children.end(); ++ci) {
+                size_t j = 0;
+                std::list<Node*>::iterator cj;
+                for (cj = (*nodeItr)->children.begin(); cj != (*nodeItr)->children.end(); ++cj) {
+                    if (i < j) {
+                        //std::cout << "(t,i,j) = (" + std::to_string(t) +  "," + std::to_string(i) + "," + std::to_string(j) + ")" << std::endl;
+                        //for each unique pair of children we compute B[i,j] for all unique pairs.
+                        //note:this is wrong as it stands. we should be looking at the label_lists
+                        std::list<std::string>::iterator it1;
+                        for (it1 = (*ci)->label_list.begin(); it1 != (*ci)->label_list.end(); ++it1) {
+                            std::cout << *it1 << std::endl;
+                            std::list<std::string>::iterator it2;
+                            for (it2 = (*cj)->label_list.begin(); it2 != (*cj)->label_list.end(); ++it2) {
+
+                                //std::cout << "(t,p,q) = (" + std::to_string(t) +  "," + std::to_string(p) + "," + std::to_string(q) + ")" << std::endl;
+                                index_t labelit1 = forest->label2index[*it1];
+                                index_t labelit2 = forest->label2index[*it2];
+                                index_t c_lca_ij = (*nodeItr)->get_c();
+                                index_t c_ci = (*ci)->get_c();
+                                index_t c_cj = (*cj)->get_c();
+                                //should n here be n, or should it be the number of taxa in the tree, which is <= n...?
+                                //update Bad edges
+                                matrix[labelit1][labelit2][0] += n - c_lca_ij;
+                                matrix[labelit2][labelit1][0] += n - c_lca_ij;
+                                //update Good edges
+                                matrix[labelit1][labelit2][1] += (c_ci + c_cj)-2;
+                                matrix[labelit2][labelit1][1] += (c_ci + c_cj)-2;
+                            }
+
+                        } 
+                    }
+                    j++;
+                }
+                //update the label list that we'll need for the next step
+                (*nodeItr)->update_label_list((*ci)->get_label_list());
+                //clear out information we no longer need 
+                (*ci)->label_list.clear();
+                i++;
+            }
+            
+
         }
     }
+    //print things to make sense of it all...
+    for (size_t phi = 0; phi < n; phi++){
+
+        std:: cout << forest->index2label[phi] + ",";
+    }
+    std::cout << std::endl;
+    std:: cout << Matrix3D::display_mat(matrix,n,n,2) << std::endl;
+
 
     // Get the cut
 
