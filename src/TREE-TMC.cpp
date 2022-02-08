@@ -10,6 +10,7 @@
 #include <vector>
 #include <list>
 #include <iomanip>
+#include <climits>
 // #include <inttypes.h>
 #include "heuristics/maxcut/burer2002.h"
 #include "problem/instance.h"
@@ -151,6 +152,9 @@ class Node {
         void contract();
         void add_children_to_list(std::list<Node*> &nodelist);
         void suppress_unifurcations();
+    void compute_c();
+    void update_c(Node *child);
+    size_t get_c();
         std::string newick(bool printindex=false);
         std::string label;  // TODO: we probably want to get rid of this at some point
                             // so we aren't storing so many copies of labels!
@@ -159,6 +163,7 @@ class Node {
         index_t index;
         index_t size;
     private:
+    index_t c = 0;
         Node *parent;
         std::list<Node*> children;
 };
@@ -519,6 +524,10 @@ size_t Node::num_children() {
     return children.size();
 }
 
+size_t Node::get_c() {
+    return c;
+}
+
 Node* Node::get_parent() {
     return parent;
 }
@@ -528,6 +537,10 @@ void Node::add_child(Node *child) {
 
     child->parent = this;
     children.push_back(child);
+
+}
+void Node::update_c(Node *child) {
+    c += child->get_c();
 }
 
 void Node::remove_child(Node *child) {
@@ -535,6 +548,22 @@ void Node::remove_child(Node *child) {
 
     child->parent = NULL;
     children.remove(child);
+}
+
+void Node::compute_c() {
+    auto nodeItr = Traverse::PostOrder(this);
+    for (; nodeItr != nodeItr.end(); ++nodeItr) {
+        if ((*nodeItr)->is_leaf()) {
+            (*nodeItr)->c = 1;
+            //std::cout << "c["+ ((*nodeItr)->label) + "] = " + std::to_string((*nodeItr)->get_c()) << std::endl;
+        continue;
+    }
+        std::list<Node*>::iterator it;
+        for (it = (*nodeItr)->children.begin(); it != (*nodeItr)->children.end(); ++it) {
+            (*nodeItr)->update_c(*it);
+        }
+        //std::cout << "c["+ ((*nodeItr)->label) + "] = " + std::to_string((*nodeItr)->get_c()) << std::endl;
+    }
 }
 
 void Node::contract() {
@@ -606,6 +635,7 @@ class Tree {
         ~Tree();
         Node* get_root();
         void suppress_unifurcations();
+    void compute_c();
         std::string newick(bool printindex=false);
     private:
         Node *root;
@@ -695,6 +725,10 @@ void Tree::suppress_unifurcations() {
     root->suppress_unifurcations();
 }
 
+void Tree::compute_c() {
+    root->compute_c();
+}
+
 
 std::string Tree::newick(bool printindex) {
     std::string out = this->root->newick(printindex);
@@ -710,7 +744,9 @@ class Forest {
         ~Forest();
         size_t num_trees();
         size_t num_labels();
-    private:
+        void compute_c();
+        std::vector<Tree*> fetch_trees();
+    //private:
         std::vector<Tree*> trees;
         std::vector<std::string> index2label;
         std::unordered_map<std::string, index_t> label2index;
@@ -753,9 +789,20 @@ size_t Forest::num_trees() {
     return trees.size();
 }
 
+std::vector<Tree*> Forest::fetch_trees() {
+    return trees;
+}
+
 
 size_t Forest::num_labels() {
     return index2label.size();
+}
+
+void Forest::compute_c() {
+    for (size_t i = 0; i < num_trees(); i++ ) {
+        trees[i]->compute_c();
+    }
+
 }
 
 
@@ -768,15 +815,32 @@ namespace TripletMaxCut {
 void TripletMaxCut::main(std::vector<Tree*> input) {
     double ***matrix;  // could probably get away with float...
     size_t n, k;
+    std::vector<Tree*> trees;
     Forest *forest = new Forest(input);
 
     n = forest->num_labels();
     k = forest->num_trees();
+    trees = forest ->fetch_trees();
+    
 
     // Make a matrix
     matrix = Matrix3D::new_mat<double>(n, n, 2);
 
+    // Get c[v] (the number of taxa beneath v) for each vertex v
+    forest->compute_c();
+
     // Compute good and bad edges in the matrix
+    for (size_t i = 0; i < k; i++) {
+        auto tree = trees[i];
+        for (size_t t1; t1 < n; t1++) {
+            for (size_t t2; t2 < 2; t2++) {
+                std::string t1_label = forest->index2label[t1];
+                std::string t2_label = forest->index2label[t2];
+                size_t G_t1t2;
+                size_t B_t1t2;
+            }
+        }
+    }
 
     // Get the cut
 
