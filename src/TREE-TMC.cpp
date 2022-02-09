@@ -11,6 +11,7 @@
 #include <list>
 #include <iomanip>
 #include <climits>
+#include <deque>
 // #include <inttypes.h>
 #include "heuristics/maxcut/burer2002.h"
 #include "problem/instance.h"
@@ -86,6 +87,9 @@ template <typename T> void extend(T &list1, T &list2) {
           can be accessed like it's 3D
 */
 
+
+
+
 namespace Matrix3D {
     template <typename T> T ***new_mat(size_t nrow, size_t ncol, size_t size);
     template <typename T> void delete_mat(T ***m, size_t nrow, size_t ncol);
@@ -137,6 +141,90 @@ std::string Matrix3D::display_mat(T ***m, size_t nrow, size_t ncol, size_t size)
     return ss.str();
 }
 
+
+class Graph {
+    public:
+        Graph(std::vector<std::string> &index2label , size_t *** matrix);
+        double get_cut(std::unordered_set<std::string> *A, std::unordered_set<std::string> *B);
+        ~Graph();
+    private:
+        size_t size;
+        std::unordered_map<std::string,size_t> label2index;
+        std::vector<std::string> index2label;
+        size_t ***graph;
+        double sdp_cut(double alpha, std::unordered_set<std::string> *A, std::unordered_set<std::string> *B);
+};
+
+Graph::Graph(std::vector<std::string> &index2label, size_t *** matrix) { 
+    size=index2label.size();
+    for (size_t i = 0; i < size; i++) {
+        label2index[index2label[i]] = i;
+        this->index2label.push_back(index2label[i]);
+    }
+    graph = Matrix3D::new_mat<size_t>(size, size, 2);
+    for (size_t i = 0; i < size; i++) {
+        for (size_t j = 0; j < size; j++) {
+            graph[i][j][0] = matrix[i][j][0];
+            graph[i][j][1] = matrix[i][j][1];
+        }
+    }
+}
+
+double Graph::get_cut(std::unordered_set<std::string> *A, std::unordered_set<std::string> *B) {
+    double positive_weight = -1.0;
+    std::unordered_set<std::string> a, b;
+    double lower = 0.0, upper = 6.0;
+    while (lower + 0.1 < upper) {
+        double alpha = (lower + upper) / 2.0;
+        a.clear(); b.clear();
+        double weight = sdp_cut(alpha, &a, &b);
+        //if (weight < 0.001) {
+        if (weight < 0.001 || a.size() == 1 || b.size() == 1) { 
+            upper = alpha;
+        }
+        else {
+            lower = alpha;
+            positive_weight = weight;
+            *A = a;
+            *B = b;
+        }
+    }
+    return positive_weight;
+}
+
+Graph::~Graph() {
+    Matrix3D::delete_mat(graph,size,size);
+}
+
+double Graph::sdp_cut(double alpha, std::unordered_set<std::string> *A, std::unordered_set<std::string> *B) {
+    std::vector<Instance::InstanceTuple> input;
+    double sum = 0;
+    for (int i = 0; i < size; i ++) {
+        for (int j = i + 1; j < size; j ++) {
+            double weight = graph[i][j][0] - alpha * graph[i][j][1];
+            if (weight < 0) weight = - weight;
+            sum += weight;
+        }
+    }
+    double norm = size * (size - 1) / 2 / sum;
+    for (int i = 0; i < size; i ++) {
+        for (int j = i + 1; j < size; j ++) {
+            double weight = (graph[i][j][0] - alpha * graph[i][j][1]) * norm;
+            input.push_back(Instance::InstanceTuple(std::make_pair(i + 1, j + 1), weight));
+        }
+    }
+    MaxCutInstance instance(input, size);
+    Burer2002 heuristic(instance, -1, false, NULL);
+    MaxCutSimpleSolution solution = heuristic.get_best_solution();
+    std::vector<int> cut = solution.get_assignments();
+    for (int i = 0; i < cut.size(); i ++) {
+        if (cut[i] < 0) 
+            A->insert(index2label[i]);
+        else 
+            B->insert(index2label[i]);
+    }
+    return solution.get_weight();
+}
 
 class Node {
     public:
@@ -653,7 +741,8 @@ class Tree {
         void suppress_unifurcations();
         void compute_c();
         std::string newick(bool printindex=false);
-    private:
+        Tree* get_induced_subtree_copy(std::unordered_set<std::string> taxa);
+    //private:
         Node *root;
 };
 
@@ -752,6 +841,58 @@ std::string Tree::newick(bool printindex) {
     return out;
 }
 
+Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
+    std::cout << "if this line runs then the segfault is in this routine" << std::endl;
+    std::unordered_map<std::string, Node*> label_to_leaf; 
+    std::unordered_set<Node*> keep;
+
+    auto leafItr = Traverse::Leaves(this->get_root());
+    for (; leafItr != leafItr.end(); ++leafItr) {
+        label_to_leaf[(*leafItr)->label] = (*leafItr);
+        if (taxa.count((*leafItr)->label)) {
+            keep.insert((*leafItr));
+        }
+    }
+
+    std::cout << "made it to 857 okay" << std::endl;
+    for (Node* n : keep) {
+        auto rootItr = Traverse::ToRoot(n);
+        for (; rootItr != rootItr.end(); ++rootItr) {
+            keep.insert((*rootItr));
+        }
+    }
+    
+    std::cout << "made it to 864 okay" << std::endl;
+
+    Tree* out;
+    out->root->label = this->root->label; //this line apparently causes a segfault...
+    std::deque<Node*> q_old; 
+    std::cout << "made it to 870 okay" << std::endl;
+    q_old.push_back(this->root);
+    std::deque<Node*> q_new;
+    q_new.push_back(out->root);
+    std::cout << "made it to 873 okay" << std::endl;
+    while (q_old.size() != 0){
+    std::cout << "made it to 875 okay" << std::endl;
+        Node* n_old = q_old.front(); 
+        q_old.pop_front(); 
+        Node* n_new = q_new.front();
+        q_new.pop_front();
+        std::list<Node*>::iterator c_old;
+        for (c_old = (n_old)->children.begin(); c_old != (n_old)->children.end(); ++c_old) {
+            if (keep.count(*c_old)) {
+                Node *c_new;
+                c_new->label = (*c_old)->label;
+                n_new->add_child(c_new);
+                q_old.push_back(*c_old);
+                q_new.push_back(c_new);
+            
+            }   
+        }   
+    }
+    out->suppress_unifurcations();
+    return out;
+}
 
 class Forest {
     public:
@@ -762,6 +903,7 @@ class Forest {
         size_t num_labels();
         void compute_c();
         std::vector<Tree*> fetch_trees();
+        Forest get_induced_subforest_copy(std::unordered_set<std::string> taxa);
     //private:
         std::vector<Tree*> trees;
         std::vector<std::string> index2label;
@@ -798,7 +940,9 @@ Forest::Forest(std::vector<Tree*> &mytrees) {
 }
 
 
-Forest::~Forest() {}
+Forest::~Forest() {
+
+}
 
 
 size_t Forest::num_trees() {
@@ -818,7 +962,16 @@ void Forest::compute_c() {
     for (size_t i = 0; i < num_trees(); i++ ) {
         trees[i]->compute_c();
     }
+}
 
+Forest Forest::get_induced_subforest_copy(std::unordered_set<std::string> taxa) {
+    std::vector<Tree*> tree_vec;
+    for (Tree* t : trees) {
+        auto nt = t->get_induced_subtree_copy(taxa);
+        tree_vec.push_back(nt);
+    }
+    auto out = Forest(tree_vec);
+    return out;
 }
 
 
@@ -829,7 +982,7 @@ namespace TripletMaxCut {
 
 
 void TripletMaxCut::main(std::vector<Tree*> input) {
-    double ***matrix;  // could probably get away with float...
+    size_t ***matrix;  // could probably get away with float...
     size_t n, k;
     std::vector<Tree*> trees;
     Forest *forest = new Forest(input);
@@ -840,7 +993,7 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
     
 
     // Make a matrix
-    matrix = Matrix3D::new_mat<double>(n, n, 2);
+    matrix = Matrix3D::new_mat<size_t>(n, n, 2);
 
     // Get c[v] (the number of taxa beneath v) for each vertex v
     forest->compute_c();
@@ -863,7 +1016,6 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
                 std::list<Node*>::iterator cj;
                 for (cj = (*nodeItr)->children.begin(); cj != (*nodeItr)->children.end(); ++cj) {
                     if (i < j) {
-                        //std::cout << "(t,i,j) = (" + std::to_string(t) +  "," + std::to_string(i) + "," + std::to_string(j) + ")" << std::endl;
                         //for each unique pair of children we compute B[i,j] for all unique pairs.
                         //note:this is wrong as it stands. we should be looking at the label_lists
                         std::list<std::string>::iterator it1;
@@ -872,7 +1024,6 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
                             std::list<std::string>::iterator it2;
                             for (it2 = (*cj)->label_list.begin(); it2 != (*cj)->label_list.end(); ++it2) {
 
-                                //std::cout << "(t,p,q) = (" + std::to_string(t) +  "," + std::to_string(p) + "," + std::to_string(q) + ")" << std::endl;
                                 index_t labelit1 = forest->label2index[*it1];
                                 index_t labelit2 = forest->label2index[*it2];
                                 index_t c_lca_ij = (*nodeItr)->get_c();
@@ -880,11 +1031,11 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
                                 index_t c_cj = (*cj)->get_c();
                                 //should n here be n, or should it be the number of taxa in the tree, which is <= n...?
                                 //update Bad edges
-                                matrix[labelit1][labelit2][0] += n - c_lca_ij;
-                                matrix[labelit2][labelit1][0] += n - c_lca_ij;
+                                matrix[labelit1][labelit2][1] += n - c_lca_ij;
+                                matrix[labelit2][labelit1][1] += n - c_lca_ij;
                                 //update Good edges
-                                matrix[labelit1][labelit2][1] += (c_ci + c_cj)-2;
-                                matrix[labelit2][labelit1][1] += (c_ci + c_cj)-2;
+                                matrix[labelit1][labelit2][0] += (c_ci + c_cj)-2;
+                                matrix[labelit2][labelit1][0] += (c_ci + c_cj)-2;
                             }
 
                         } 
@@ -911,6 +1062,29 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
 
 
     // Get the cut
+    //
+    Graph G(forest->index2label,matrix);
+
+    std::unordered_set<std::string> left_bipartition;
+    std::unordered_set<std::string> right_bipartition;
+
+    G.get_cut(&left_bipartition, &right_bipartition);
+
+    std::cout << "left bipartition contains: ";
+
+    for (std::string s : left_bipartition) {
+        std::cout << " " + s;
+    } 
+    std::cout << "\nright bipartition contains: ";
+
+    for (std::string s : right_bipartition) {
+        std::cout << " " + s;
+    }
+    std::cout << "\n";
+    
+    Forest left_subproblem = forest->get_induced_subforest_copy(left_bipartition);
+    //auto t = forest->trees[0];
+    //std::cout << "left subtree:" + t->newick() << std::endl;
 
     // Extract the subproblems, which is a list of Tree*
     // on the subset of the problem...
@@ -918,6 +1092,7 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
     // get_induced_subtree_copy -- 
     // given input tree and leaf set X, return a new tree
     // that is the induced subtree for the input
+    //
     
     // create_induced_subtree -- same as above but transform
     // the current tree into the induced subtree for X by deleting...
@@ -928,7 +1103,7 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
         delete input[i];
     }
     input.clear();
-    delete forest;
+    //delete forest;
 
     // Now recurse on the two subproblems
 
