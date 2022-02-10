@@ -842,7 +842,6 @@ std::string Tree::newick(bool printindex) {
 }
 
 Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
-    std::cout << "if this line runs then the segfault is in this routine" << std::endl;
     std::unordered_map<std::string, Node*> label_to_leaf; 
     std::unordered_set<Node*> keep;
 
@@ -854,7 +853,6 @@ Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
         }
     }
 
-    std::cout << "made it to 857 okay" << std::endl;
     for (Node* n : keep) {
         auto rootItr = Traverse::ToRoot(n);
         for (; rootItr != rootItr.end(); ++rootItr) {
@@ -862,18 +860,14 @@ Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
         }
     }
     
-    std::cout << "made it to 864 okay" << std::endl;
 
-    Tree* out;
-    out->root->label = this->root->label; //this line apparently causes a segfault...
+    Tree* out = new Tree();
+    out->root->label = this->root->label; //change to out->root->set_label(this->root->get_label()); 
     std::deque<Node*> q_old; 
-    std::cout << "made it to 870 okay" << std::endl;
     q_old.push_back(this->root);
     std::deque<Node*> q_new;
     q_new.push_back(out->root);
-    std::cout << "made it to 873 okay" << std::endl;
     while (q_old.size() != 0){
-    std::cout << "made it to 875 okay" << std::endl;
         Node* n_old = q_old.front(); 
         q_old.pop_front(); 
         Node* n_new = q_new.front();
@@ -881,7 +875,7 @@ Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
         std::list<Node*>::iterator c_old;
         for (c_old = (n_old)->children.begin(); c_old != (n_old)->children.end(); ++c_old) {
             if (keep.count(*c_old)) {
-                Node *c_new;
+                Node *c_new = new Node();
                 c_new->label = (*c_old)->label;
                 n_new->add_child(c_new);
                 q_old.push_back(*c_old);
@@ -981,7 +975,7 @@ namespace TripletMaxCut {
 }
 
 
-void TripletMaxCut::main(std::vector<Tree*> input) {
+Tree* TripletMaxCut::main(std::vector<Tree*> input) {
     size_t ***matrix;  // could probably get away with float...
     size_t n, k;
     std::vector<Tree*> trees;
@@ -1070,6 +1064,7 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
 
     G.get_cut(&left_bipartition, &right_bipartition);
 
+    Matrix3D::delete_mat(matrix, n, n);
     std::cout << "left bipartition contains: ";
 
     for (std::string s : left_bipartition) {
@@ -1081,10 +1076,24 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
         std::cout << " " + s;
     }
     std::cout << "\n";
+
     
-    Forest left_subproblem = forest->get_induced_subforest_copy(left_bipartition);
-    //auto t = forest->trees[0];
-    //std::cout << "left subtree:" + t->newick() << std::endl;
+    std::vector<Tree*> left_tree_vec;
+    for (Tree* t : trees) {
+        auto nt = t->get_induced_subtree_copy(left_bipartition);
+        left_tree_vec.push_back(nt);
+    }
+
+    std::vector<Tree*> right_tree_vec;
+    for (Tree* t : trees) {
+        auto nt = t->get_induced_subtree_copy(right_bipartition);
+        right_tree_vec.push_back(nt);
+    }       
+    //uncomment the below to make sure that the induced_subtree_code is working (it is)
+    //Forest left_subproblem = Forest(left_tree_vec);
+    //Forest right_subproblem = Forest(right_tree_vec);
+    //std::cout << "left subtree:" + left_subproblem.trees[0]->newick() << std::endl;
+    //std::cout << "right subtree:" + right_subproblem.trees[0]->newick() << std::endl;
 
     // Extract the subproblems, which is a list of Tree*
     // on the subset of the problem...
@@ -1098,7 +1107,6 @@ void TripletMaxCut::main(std::vector<Tree*> input) {
     // the current tree into the induced subtree for X by deleting...
 
     // Clean up
-    Matrix3D::delete_mat(matrix, n, n);
     for (size_t i = 0; i < input.size(); i++) {
         delete input[i];
     }
