@@ -178,8 +178,8 @@ double Graph::get_cut(std::unordered_set<std::string> *A, std::unordered_set<std
         double alpha = (lower + upper) / 2.0;
         a.clear(); b.clear();
         double weight = sdp_cut(alpha, &a, &b);
-        //if (weight < 0.001) {
-        if (weight < 0.001 || a.size() == 1 || b.size() == 1) { 
+        if (weight < 0.001) {
+        //if (weight < 0.001 || a.size() == 1 || b.size() == 1) { 
             upper = alpha;
         }
         else {
@@ -969,13 +969,8 @@ Forest Forest::get_induced_subforest_copy(std::unordered_set<std::string> taxa) 
 }
 
 
-namespace TripletMaxCut {
-   void main(std::vector<Tree*> input);
-   // void compute_good_and_bad_edges();
-}
+Node* TripletMaxCut(std::vector<Tree*> input) {
 
-
-Tree* TripletMaxCut::main(std::vector<Tree*> input) {
     size_t ***matrix;  // could probably get away with float...
     size_t n, k;
     std::vector<Tree*> trees;
@@ -985,6 +980,19 @@ Tree* TripletMaxCut::main(std::vector<Tree*> input) {
     k = forest->num_trees();
     trees = forest ->fetch_trees();
     
+
+    //basecase
+    if (n==1) {
+        Node *temp_root = new Node(forest->index2label[0]);
+        return temp_root;
+    }
+    if (n ==2) {
+        Node *temp_root = new Node();
+        for (std::string s : forest->index2label) {
+            temp_root->add_child(new Node(s));
+        }
+        return temp_root;
+    }
 
     // Make a matrix
     matrix = Matrix3D::new_mat<size_t>(n, n, 2);
@@ -1088,7 +1096,8 @@ Tree* TripletMaxCut::main(std::vector<Tree*> input) {
     for (Tree* t : trees) {
         auto nt = t->get_induced_subtree_copy(right_bipartition);
         right_tree_vec.push_back(nt);
-    }       
+    } 
+
     //uncomment the below to make sure that the induced_subtree_code is working (it is)
     //Forest left_subproblem = Forest(left_tree_vec);
     //Forest right_subproblem = Forest(right_tree_vec);
@@ -1111,11 +1120,15 @@ Tree* TripletMaxCut::main(std::vector<Tree*> input) {
         delete input[i];
     }
     input.clear();
-    //delete forest;
 
     // Now recurse on the two subproblems
+    Node *temp_root = new Node();
+    temp_root->add_child(TripletMaxCut(left_tree_vec));
+    temp_root->add_child(TripletMaxCut(right_tree_vec));
+    return temp_root;
 
     // Combine the subproblems... after recursion bounces back...
+
 }
 
 
@@ -1180,7 +1193,8 @@ int main(int argc, char** argv) {
     }
     fin.close();
 
-    TripletMaxCut::main(input);
+    Node *root = TripletMaxCut(input);
+    std::cout << root->newick() + ";"<< std::endl;
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
