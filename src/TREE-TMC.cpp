@@ -132,7 +132,7 @@ std::string Matrix3D::display_mat(T ***m, size_t nrow, size_t ncol, size_t size)
         ss << "Matrix2D: " << k << std::endl;
         for (int i = 0; i < nrow; i ++) {
             for (int j = 0; j < ncol; j ++) {
-                ss << std::setw(2) << std::setprecision(6) << m[i][j][k];
+                ss << std::setw(16) << std::setprecision(6) << m[i][j][k];
             }
             ss << std::endl;
         }
@@ -144,24 +144,24 @@ std::string Matrix3D::display_mat(T ***m, size_t nrow, size_t ncol, size_t size)
 
 class Graph {
     public:
-        Graph(std::vector<std::string> &index2label , size_t *** matrix);
+        Graph(std::vector<std::string> &index2label , double *** matrix);
         double get_cut(std::unordered_set<std::string> *A, std::unordered_set<std::string> *B);
         ~Graph();
     private:
         size_t size;
         std::unordered_map<std::string,size_t> label2index;
         std::vector<std::string> index2label;
-        size_t ***graph;
+        double ***graph;
         double sdp_cut(double alpha, std::unordered_set<std::string> *A, std::unordered_set<std::string> *B);
 };
 
-Graph::Graph(std::vector<std::string> &index2label, size_t *** matrix) { 
+Graph::Graph(std::vector<std::string> &index2label, double *** matrix) { 
     size=index2label.size();
     for (size_t i = 0; i < size; i++) {
         label2index[index2label[i]] = i;
         this->index2label.push_back(index2label[i]);
     }
-    graph = Matrix3D::new_mat<size_t>(size, size, 2);
+    graph = Matrix3D::new_mat<double>(size, size, 2);
     for (size_t i = 0; i < size; i++) {
         for (size_t j = 0; j < size; j++) {
             graph[i][j][0] = matrix[i][j][0];
@@ -235,6 +235,7 @@ class Node {
         bool is_leaf();
         size_t num_children();
         Node* get_parent();
+        Node* copy_beneath();
         void add_child(Node *child);
         void remove_child(Node *child);
         void contract();
@@ -255,7 +256,7 @@ class Node {
         index_t size;
         std::list<Node*> children;
         std::list<std::string> label_list;
-    private:
+    //private:
         index_t c = 0;
         Node *parent;
 };
@@ -659,14 +660,12 @@ void Node::compute_c() {
     for (; nodeItr != nodeItr.end(); ++nodeItr) {
         if ((*nodeItr)->is_leaf()) {
             (*nodeItr)->c = 1;
-            //std::cout << "c["+ ((*nodeItr)->label) + "] = " + std::to_string((*nodeItr)->get_c()) << std::endl;
         continue;
         }
         std::list<Node*>::iterator it;
         for (it = (*nodeItr)->children.begin(); it != (*nodeItr)->children.end(); ++it) {
             (*nodeItr)->update_c(*it);
         }
-        //std::cout << "c["+ ((*nodeItr)->label) + "] = " + std::to_string((*nodeItr)->get_c()) << std::endl;
     }
 }
 
@@ -691,6 +690,7 @@ void Node::add_children_to_list(std::list<Node*> &nodelist) {
 }
 
 void Node::suppress_unifurcations() {
+
     auto nodeItr = Traverse::PreOrder(this);
     for (; nodeItr != nodeItr.end(); ++nodeItr) {
         if ((*nodeItr)->num_children() == 1) (*nodeItr)->contract();
@@ -730,6 +730,10 @@ std::string Node::newick(bool printindex) {
     return out;
 }
 
+Node* Node::copy_beneath() {
+
+}
+
 
 class Tree {
     public:
@@ -742,6 +746,8 @@ class Tree {
         void compute_c();
         std::string newick(bool printindex=false);
         Tree* get_induced_subtree_copy(std::unordered_set<std::string> taxa);
+        Tree* get_induced_subtree_copy_2(std::unordered_set<std::string> taxa);
+        Tree* copy_tree();
     //private:
         Node *root;
 };
@@ -827,7 +833,14 @@ Node* Tree::get_root() {
 
 
 void Tree::suppress_unifurcations() {
-    root->suppress_unifurcations();
+    std::vector<Node*> original_children;
+    std::list<Node*>::iterator it;
+    for (it = root->children.begin(); it != root->children.end(); ++it) {
+        original_children.push_back(*it);
+    }
+    for (Node* n : original_children) {
+        n->suppress_unifurcations();
+    }
 }
 
 void Tree::compute_c() {
@@ -841,18 +854,37 @@ std::string Tree::newick(bool printindex) {
     return out;
 }
 
+Tree* Tree::copy_tree() {
+    Tree *out = new Tree();
+    auto nodeItr = Traverse::PreOrder(root);
+    for (; nodeItr != nodeItr.end(); ++nodeItr) {
+        Node *n = new Node();
+        n->label = (*nodeItr)->label;
+        n->parent = NULL;
+    }
+    return out;
+}
+
 Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
+    //std::cout << "getting induced subtree for: ";
+    //for (std::string t : taxa) {
+    //    std::cout << t + ",";
+    //}
+    //std::cout << std::endl;
+    //std::cout << "on tree: " + this->newick() << std::endl;
+
     std::unordered_map<std::string, Node*> label_to_leaf; 
     std::unordered_set<Node*> keep;
-
+    //get pointers to all leaves we plan to keep
     auto leafItr = Traverse::Leaves(this->get_root());
     for (; leafItr != leafItr.end(); ++leafItr) {
         label_to_leaf[(*leafItr)->label] = (*leafItr);
-        if (taxa.count((*leafItr)->label)) {
+        if (taxa.count((*leafItr)->label) > 0) {
             keep.insert((*leafItr));
         }
     }
 
+    //get all ancestors of leaves we plan to keep
     for (Node* n : keep) {
         auto rootItr = Traverse::ToRoot(n);
         for (; rootItr != rootItr.end(); ++rootItr) {
@@ -861,7 +893,7 @@ Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
     }
     
 
-    Tree* out = new Tree();
+    Tree * out = new Tree();
     out->root->label = this->root->label; //change to out->root->set_label(this->root->get_label()); 
     std::deque<Node*> q_old; 
     q_old.push_back(this->root);
@@ -885,6 +917,7 @@ Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
         }   
     }
     out->suppress_unifurcations();
+
     return out;
 }
 
@@ -971,7 +1004,7 @@ Forest Forest::get_induced_subforest_copy(std::unordered_set<std::string> taxa) 
 
 Node* TripletMaxCut(std::vector<Tree*> input) {
 
-    size_t ***matrix;  // could probably get away with float...
+    double ***matrix;  // could probably get away with float...
     size_t n, k;
     std::vector<Tree*> trees;
     Forest *forest = new Forest(input);
@@ -995,7 +1028,7 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
     }
 
     // Make a matrix
-    matrix = Matrix3D::new_mat<size_t>(n, n, 2);
+    matrix = Matrix3D::new_mat<double>(n, n, 2);
 
     // Get c[v] (the number of taxa beneath v) for each vertex v
     forest->compute_c();
@@ -1022,7 +1055,7 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
                         //note:this is wrong as it stands. we should be looking at the label_lists
                         std::list<std::string>::iterator it1;
                         for (it1 = (*ci)->label_list.begin(); it1 != (*ci)->label_list.end(); ++it1) {
-                            std::cout << *it1 << std::endl;
+                            //std::cout << *it1 << std::endl;
                             std::list<std::string>::iterator it2;
                             for (it2 = (*cj)->label_list.begin(); it2 != (*cj)->label_list.end(); ++it2) {
 
@@ -1090,7 +1123,9 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
     for (Tree* t : trees) {
         auto nt = t->get_induced_subtree_copy(left_bipartition);
         left_tree_vec.push_back(nt);
+        //std::cout << "got to 1107" << std::endl;
     }
+
 
     std::vector<Tree*> right_tree_vec;
     for (Tree* t : trees) {
@@ -1128,6 +1163,7 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
     return temp_root;
 
     // Combine the subproblems... after recursion bounces back...
+
 
 }
 
@@ -1192,6 +1228,10 @@ int main(int argc, char** argv) {
         input.push_back(tree);
     }
     fin.close();
+    std::unordered_set<std::string> s1 ( {"2","1","3" } );
+
+    //std::cout << input[0]->get_induced_subtree_copy(s1)->newick() << std::endl;
+    //return 0;
 
     Node *root = TripletMaxCut(input);
     std::cout << root->newick() + ";"<< std::endl;

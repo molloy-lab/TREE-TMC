@@ -1,0 +1,13 @@
+
+================== STELAR ===================== 
+
+This is STELAR version 0.0
+Gene trees are treated as rooted
+Number of taxa: 11
+Taxa: [0, 2, 8, 4, 9, 7, 6, 10, 1, 5, 3]
+STBs in gene trees (count): 371
+STBs in gene trees (sum): 10000
+Number of Clusters: 140
+Sigma N: 10000.0
+Size of largest cluster: 11
+Optimal tree inferred in 0.692 secs
