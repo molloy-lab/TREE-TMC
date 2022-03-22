@@ -236,6 +236,7 @@ class Node {
         size_t num_children();
         Node* get_parent();
         Node* copy_beneath();
+        void update_parent(Node * p);
         void add_child(Node *child);
         void remove_child(Node *child);
         void contract();
@@ -584,6 +585,8 @@ Node::Node() {
     label = "";
     index = INDEX_MAX;
     size = 0;
+    
+    
 }
 
 Node::Node(std::string name) {
@@ -637,6 +640,10 @@ Node* Node::get_parent() {
     return parent;
 }
 
+void Node::update_parent(Node* p) {
+    parent = p;
+
+}
 void Node::add_child(Node *child) {
     if (child == NULL) return;
 
@@ -747,6 +754,7 @@ class Tree {
         std::string newick(bool printindex=false);
         Tree* get_induced_subtree_copy(std::unordered_set<std::string> taxa);
         Tree* get_induced_subtree_copy_2(std::unordered_set<std::string> taxa);
+        void _copy_tree_helper(Node* curr_old, Node* curr_new);
         Tree* copy_tree();
     //private:
         Node *root;
@@ -854,68 +862,37 @@ std::string Tree::newick(bool printindex) {
     return out;
 }
 
+void Tree::_copy_tree_helper(Node* curr_old, Node* curr_new) {
+    for (Node* chld: curr_old->children) {
+        Node *c_new = new Node();
+        c_new->update_parent(curr_new);
+        curr_new->add_child(c_new);
+        c_new->label = chld->label;
+        _copy_tree_helper(chld,c_new);
+    }    
+}
+
 Tree* Tree::copy_tree() {
     Tree *out = new Tree();
-    auto nodeItr = Traverse::PreOrder(root);
-    for (; nodeItr != nodeItr.end(); ++nodeItr) {
-        Node *n = new Node();
-        n->label = (*nodeItr)->label;
-        n->parent = NULL;
-    }
+    Node* curr_old = this->root;
+    Node* curr_new = out->root;
+    _copy_tree_helper(curr_old,curr_new);
     return out;
+   
 }
 
 Tree* Tree::get_induced_subtree_copy(std::unordered_set<std::string> taxa) {
-    //std::cout << "getting induced subtree for: ";
-    //for (std::string t : taxa) {
-    //    std::cout << t + ",";
-    //}
-    //std::cout << std::endl;
-    //std::cout << "on tree: " + this->newick() << std::endl;
+    Tree * out = copy_tree();
+     auto leafItr = Traverse::Leaves(out->root);
+     for (; leafItr != leafItr.end(); ++leafItr) {
+         auto leaf = *leafItr;
+         if (taxa.count(leaf->label) == 0) {
+            leaf->parent->remove_child(leaf);
+            delete leaf;
+            out->suppress_unifurcations();
+         }
+     }
 
-    std::unordered_map<std::string, Node*> label_to_leaf; 
-    std::unordered_set<Node*> keep;
-    //get pointers to all leaves we plan to keep
-    auto leafItr = Traverse::Leaves(this->get_root());
-    for (; leafItr != leafItr.end(); ++leafItr) {
-        label_to_leaf[(*leafItr)->label] = (*leafItr);
-        if (taxa.count((*leafItr)->label) > 0) {
-            keep.insert((*leafItr));
-        }
-    }
-
-    //get all ancestors of leaves we plan to keep
-    for (Node* n : keep) {
-        auto rootItr = Traverse::ToRoot(n);
-        for (; rootItr != rootItr.end(); ++rootItr) {
-            keep.insert((*rootItr));
-        }
-    }
-    
-
-    Tree * out = new Tree();
-    out->root->label = this->root->label; //change to out->root->set_label(this->root->get_label()); 
-    std::deque<Node*> q_old; 
-    q_old.push_back(this->root);
-    std::deque<Node*> q_new;
-    q_new.push_back(out->root);
-    while (q_old.size() != 0){
-        Node* n_old = q_old.front(); 
-        q_old.pop_front(); 
-        Node* n_new = q_new.front();
-        q_new.pop_front();
-        std::list<Node*>::iterator c_old;
-        for (c_old = (n_old)->children.begin(); c_old != (n_old)->children.end(); ++c_old) {
-            if (keep.count(*c_old)) {
-                Node *c_new = new Node();
-                c_new->label = (*c_old)->label;
-                n_new->add_child(c_new);
-                q_old.push_back(*c_old);
-                q_new.push_back(c_new);
-            
-            }   
-        }   
-    }
     out->suppress_unifurcations();
 
     return out;
@@ -1087,15 +1064,7 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
 
         }
     }
-    //print things to make sense of it all...
-    for (size_t phi = 0; phi < n; phi++){
-
-        std:: cout << forest->index2label[phi] + ",";
-    }
-    std::cout << std::endl;
-    std:: cout << Matrix3D::display_mat(matrix,n,n,2) << std::endl;
-
-
+    
     // Get the cut
     //
     Graph G(forest->index2label,matrix);
@@ -1106,6 +1075,7 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
     G.get_cut(&left_bipartition, &right_bipartition);
 
     Matrix3D::delete_mat(matrix, n, n);
+    /*
     std::cout << "left bipartition contains: ";
 
     for (std::string s : left_bipartition) {
@@ -1117,6 +1087,7 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
         std::cout << " " + s;
     }
     std::cout << "\n";
+    */
 
     
     std::vector<Tree*> left_tree_vec;
@@ -1162,7 +1133,6 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
     temp_root->add_child(TripletMaxCut(right_tree_vec));
     return temp_root;
 
-    // Combine the subproblems... after recursion bounces back...
 
 
 }
@@ -1224,17 +1194,28 @@ int main(int argc, char** argv) {
     while (std::getline(fin, newick)) {
         if (newick.find(";") == std::string::npos) break;
         Tree *tree = new Tree(newick);
-        std::cout << tree->newick() << std::endl;
         input.push_back(tree);
     }
     fin.close();
-    std::unordered_set<std::string> s1 ( {"2","1","3" } );
-
+    std::unordered_set<std::string> s1 ( {"0","4","9" } );
+    auto t = input[0]->copy_tree();
+    //std::cout << t->newick() << std::endl;
     //std::cout << input[0]->get_induced_subtree_copy(s1)->newick() << std::endl;
     //return 0;
 
     Node *root = TripletMaxCut(input);
-    std::cout << root->newick() + ";"<< std::endl;
+    auto result = root->newick();
+    // Write species tree
+    std::ofstream fout(output_file);
+    if (! fout.is_open()) {
+        std::cout << result << std::endl;
+    }
+    else {
+        fout << result << std::endl;
+        fout.close();
+    }
+
+    //std::cout << root->newick() + ";"<< std::endl;
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
