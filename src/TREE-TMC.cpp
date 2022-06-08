@@ -94,6 +94,7 @@ namespace Matrix3D {
     template <typename T> T ***new_mat(size_t nrow, size_t ncol, size_t size);
     template <typename T> void delete_mat(T ***m, size_t nrow, size_t ncol);
     template <typename T> std::string display_mat(T ***m, size_t nrow, size_t ncol, size_t size);
+    template <typename T> std::string display_mat_fastme(T ***m, size_t nrow, size_t ncol, size_t size, std::vector<std::string> *labels);
 };
 
 
@@ -141,6 +142,20 @@ std::string Matrix3D::display_mat(T ***m, size_t nrow, size_t ncol, size_t size)
     return ss.str();
 }
 
+template <typename T>
+std::string Matrix3D::display_mat_fastme(T ***m, size_t nrow, size_t ncol, size_t size, std::vector<std::string> *labels) {
+    std::stringstream ss;
+    ss << (labels->size()) << std::endl;
+    for (int i = 0; i < nrow; i ++) {
+        ss << (*labels)[i] << "\t";
+        for (int j = 0; j < ncol; j ++) {
+            ss << "\t" << std::setprecision(6) << m[i][j][size];
+        }
+        ss << std::endl;
+    }
+    ss << std::endl;
+    return ss.str();
+}
 
 class Graph {
     public:
@@ -1132,10 +1147,87 @@ Node* TripletMaxCut(std::vector<Tree*> input) {
     temp_root->add_child(TripletMaxCut(left_tree_vec));
     temp_root->add_child(TripletMaxCut(right_tree_vec));
     return temp_root;
+}
 
+double*** OutputMatrix(std::vector<Tree*> input,size_t* phi, std::vector<std::string>* lbls) {
 
+    double ***matrix;  // could probably get away with float...
+    size_t n, k;
+    std::vector<Tree*> trees;
+    Forest *forest = new Forest(input);
+
+    n = forest->num_labels();
+    *phi = n;
+    k = forest->num_trees();
+    trees = forest ->fetch_trees();
+    *lbls = (forest->index2label);
+    
+    // Make a matrix
+    matrix = Matrix3D::new_mat<double>(n, n, 2);
+
+    // Get c[v] (the number of taxa beneath v) for each vertex v
+    forest->compute_c();
+    //Build B and G post-order
+    for (size_t t = 0; t < k; t++) {
+        //std::cout << std::to_string(t) << std::endl;
+        auto tre = trees[t];
+        auto nodeItr = Traverse::PostOrder(tre->get_root());
+        for (; nodeItr != nodeItr.end(); ++nodeItr) {
+            //if we are at a leaf X we should just add it's label to a singleton list [X].
+            if ((*nodeItr)->is_leaf()) {
+                (*nodeItr)->update_label_list((*nodeItr)->label);
+                continue;
+            }
+            //otherwise we should iterate through the children of the node and compute B[i,j]
+            size_t i = 0;
+            std::list<Node*>::iterator ci;
+            for (ci = (*nodeItr)->children.begin(); ci != (*nodeItr)->children.end(); ++ci) {
+                size_t j = 0;
+                std::list<Node*>::iterator cj;
+                for (cj = (*nodeItr)->children.begin(); cj != (*nodeItr)->children.end(); ++cj) {
+                    if (i < j) {
+                        //for each unique pair of children we compute B[i,j] for all unique pairs.
+                        //note:this is wrong as it stands. we should be looking at the label_lists
+                        std::list<std::string>::iterator it1;
+                        for (it1 = (*ci)->label_list.begin(); it1 != (*ci)->label_list.end(); ++it1) {
+                            //std::cout << *it1 << std::endl;
+                            std::list<std::string>::iterator it2;
+                            for (it2 = (*cj)->label_list.begin(); it2 != (*cj)->label_list.end(); ++it2) {
+
+                                index_t labelit1 = forest->label2index[*it1];
+                                index_t labelit2 = forest->label2index[*it2];
+                                index_t c_lca_ij = (*nodeItr)->get_c();
+                                index_t c_ci = (*ci)->get_c();
+                                index_t c_cj = (*cj)->get_c();
+                                //should n here be n, or should it be the number of taxa in the tree, which is <= n...?
+                                //update Bad edges
+                                matrix[labelit1][labelit2][1] += n - c_lca_ij;
+                                matrix[labelit2][labelit1][1] += n - c_lca_ij;
+                                //update Good edges
+                                matrix[labelit1][labelit2][0] += (c_ci + c_cj)-2;
+                                matrix[labelit2][labelit1][0] += (c_ci + c_cj)-2;
+                            }
+
+                        } 
+                    }
+                    j++;
+                }
+                //update the label list that we'll need for the next step
+                (*nodeItr)->update_label_list((*ci)->get_label_list());
+                //clear out information we no longer need 
+                (*ci)->label_list.clear();
+                i++;
+            }
+            
+
+        }
+    }
+    // return matrix
+    return matrix;
 
 }
+
+
 
 
 int main(int argc, char** argv) {
@@ -1149,12 +1241,16 @@ int main(int argc, char** argv) {
 
     int cutseed = 1;
     int execution = 0;
+    bool wm = false;
 
     for (int i = 0; i < argc; i ++) {
         std::string opt(argv[i]);
         if (opt == "-h" || opt == "--help") { std::cout << help; return 0; }
         if (opt == "-i" || opt == "--input" && i < argc - 1) input_file = argv[++ i];
         if (opt == "-o" || opt == "--output" && i < argc - 1) output_file = argv[++ i];
+        if (opt == "-m" || opt == "--writemat") {
+            wm = true;
+        }
         if (opt == "-v" || opt == "--verbose") {
             std::string param = "";
             if (i < argc - 1) param = argv[++ i];
@@ -1197,22 +1293,35 @@ int main(int argc, char** argv) {
         input.push_back(tree);
     }
     fin.close();
-    std::unordered_set<std::string> s1 ( {"0","4","9" } );
-    auto t = input[0]->copy_tree();
+    //std::unordered_set<std::string> s1 ( {"0","4","9" } );
+    //auto t = input[0]->copy_tree();
     //std::cout << t->newick() << std::endl;
     //std::cout << input[0]->get_induced_subtree_copy(s1)->newick() << std::endl;
     //return 0;
 
-    Node *root = TripletMaxCut(input);
-    auto result = root->newick();
-    // Write species tree
-    std::ofstream fout(output_file);
-    if (! fout.is_open()) {
-        std::cout << result << std::endl;
-    }
-    else {
-        fout << result << std::endl;
-        fout.close();
+    if (wm == true) {
+        size_t phi;
+        std::vector<std::string> lbls;
+        auto result = OutputMatrix(input,&phi, &lbls);
+        // Write matrix
+        std::ofstream fout(output_file);
+        if (!fout.is_open()) {
+            std::cout << Matrix3D::display_mat_fastme(result,phi,phi,0,&lbls);
+        } else {
+            fout << Matrix3D::display_mat_fastme(result,phi,phi,0,&lbls);
+        }
+    } else {
+        Node *root = TripletMaxCut(input);
+        auto result = root->newick()+";";
+        // Write species tree
+        std::ofstream fout(output_file);
+        if (! fout.is_open()) {
+            std::cout << result << std::endl;
+        }
+        else {
+            fout << result << std::endl;
+            fout.close();
+        }
     }
 
     //std::cout << root->newick() + ";"<< std::endl;
